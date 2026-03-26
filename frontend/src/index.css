@@ -397,6 +397,60 @@ select {
   padding-inline: 16px;
 }
 
+.status-glossary {
+  margin-bottom: 18px;
+  padding: 18px;
+  border-radius: 22px;
+  border: 1px solid rgba(54, 63, 59, 0.1);
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.status-glossary__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.status-glossary__header h3 {
+  margin: 6px 0 0;
+  font-size: 1.1rem;
+}
+
+.status-glossary__hint {
+  color: var(--muted);
+  font-size: 0.92rem;
+  max-width: 28ch;
+}
+
+.status-glossary__list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.status-glossary__item {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(54, 63, 59, 0.08);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.status-glossary__item p,
+.status-helper {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.status-helper {
+  margin-top: 2px;
+}
+
 .bounty-card,
 .issue-card {
   border-radius: 22px;
@@ -633,8 +687,18 @@ select {
 
   .two-up,
   .meta-grid,
-  .filter-grid {
+  .filter-grid,
+  .status-glossary__list {
     grid-template-columns: 1fr;
+  }
+
+  .status-glossary,
+  .board-filters {
+    padding: 16px;
+  }
+
+  .status-glossary__hint {
+    max-width: none;
   }
 
   .filter-field--search {
