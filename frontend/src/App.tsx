@@ -2,13 +2,20 @@ import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
   Coins,
-  FolderGit2,
-  UserRound,
+  Download,
+  ExternalLink,
+  FileText,
+  Filter,
+  GitBranch,
   HandCoins,
-  Rocket,
+  Plus,
   Search,
-  ShieldCheck,
   SlidersHorizontal,
+  Star,
+  Trash2,
+  Upload,
+  User,
+  X,
 } from "lucide-react";
 import {
   createBounty,
@@ -23,15 +30,13 @@ import {
 import { BountyRecommendation, ContributorProfile, createDefaultProfile, generateRecommendations, updateProfileFromBounties } from "./recommendations";
 import RecommendedBounties from "./RecommendedBounties";
 import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary } from "./constants";
-import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics } from "./utils";
+import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getRepoMetrics } from "./utils";
 import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
-import type { Bounty, BountyStatus, CreateBountyPayload, OpenIssue } from "./types";
 import BountyDetailPage from "./BountyDetailPage";
 
 import SkeletonBountyCard from "./SkeletonBountyCard";
-import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
 
 const STELLAR_PUBLIC_KEY_HINT = "Expected Stellar public key (starts with G and is 56 characters).";
 const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z2-7]{55}$/;
@@ -71,27 +76,6 @@ function validateStellarPublicKey(input: string): string | null {
   return null;
 }
 
-function readInitialFilters() {
-  const params = new URLSearchParams(window.location.search);
-  const rawSearch = params.get("search") ?? "";
-  const rawStatus = params.get("status") ?? "all";
-  const statusFilter: "all" | BountyStatus =
-    rawStatus === "open" ||
-    rawStatus === "reserved" ||
-    rawStatus === "submitted" ||
-    rawStatus === "released" ||
-    rawStatus === "refunded" ||
-    rawStatus === "expired"
-      ? rawStatus
-      : "all";
-
-  return {
-    searchQuery: rawSearch,
-    statusFilter,
-    minReward: params.get("minReward") ?? "",
-    maxReward: params.get("maxReward") ?? "",
-  };
-}
 
 const contributorStatuses: Array<BountyStatus | "all"> = [
   "all",
@@ -166,6 +150,10 @@ n
   const [statusFilter, setStatusFilter] = useState<"all" | BountyStatus>(initialFilters.statusFilter);
   const [minReward, setMinReward] = useState(initialFilters.minReward);
   const [maxReward, setMaxReward] = useState(initialFilters.maxReward);
+  const [repoFilter, setRepoFilter] = useState(initialFilters.repoFilter);
+  const [pathname, setPathname] = useState(window.location.pathname);
+  const [profileContributor, setProfileContributor] = useState("");
+  const [profileStatus, setProfileStatus] = useState<"all" | BountyStatus>("all");
 
 
 
@@ -204,7 +192,7 @@ n
   }, []);
 
   useEffect(() => {
-    if (pathname.startsWith("/bounties/")) return;
+    if (pathname.startsWith("/bounties/") || pathname.startsWith("/repo/")) return;
     const params = new URLSearchParams();
 
     if (searchQuery.trim() !== "") {
@@ -223,22 +211,27 @@ n
       params.set("maxReward", maxReward);
     }
 
+    if (repoFilter !== "") {
+      params.set("repo", repoFilter);
+    }
+
     const nextSearch = params.toString();
     const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
     window.history.replaceState(null, "", nextUrl);
-  }, [maxReward, minReward, pathname, searchQuery, statusFilter]);
+  }, [maxReward, minReward, pathname, searchQuery, statusFilter, repoFilter]);
 
   useEffect(() => {
     function handlePopState() {
       const nextPathname = window.location.pathname;
       setPathname(nextPathname);
 
-      if (nextPathname.startsWith("/bounties/")) return;
+      if (nextPathname.startsWith("/bounties/") || nextPathname.startsWith("/repo/")) return;
       const filters = readInitialFilters();
       setSearchQuery(filters.searchQuery);
       setStatusFilter(filters.statusFilter);
       setMinReward(filters.minReward);
       setMaxReward(filters.maxReward);
+      setRepoFilter(filters.repoFilter);
     }
 
     window.addEventListener("popstate", handlePopState);
@@ -263,11 +256,61 @@ n
     };
   }, [bounties]);
 
+  const uniqueRepos = useMemo(() => {
+    return getUniqueRepos(bounties);
+  }, [bounties]);
 
+  const groupedBounties = useMemo(() => {
+    if (repoRoute) {
+      // When on a repo-specific route, don't group - just show filtered bounties
+      return { [repoRoute.owner + '/' + repoRoute.name]: filteredBounties };
+    }
+    
+    const groups: Record<string, typeof filteredBounties> = {};
+    filteredBounties.forEach((bounty) => {
+      if (!groups[bounty.repo]) {
+        groups[bounty.repo] = [];
+      }
+      groups[bounty.repo].push(bounty);
+    });
+    return groups;
+  }, [filteredBounties, repoRoute]);
+
+  const rewardBounds = useMemo(() => {
+    return getRewardBounds(bounties);
+  }, [bounties]);
+
+  const activeRewardLabel = useMemo(() => {
+    return getActiveRewardLabel(minReward, maxReward, rewardBounds);
+  }, [minReward, maxReward, rewardBounds]);
+
+  const contributorMetrics = useMemo(() => {
+    return getContributorMetrics(bounties, profileContributor);
+  }, [bounties, profileContributor]);
+
+  const [profile, setProfile] = useState(() => createDefaultProfile());
+  const recommendations = useMemo(() => {
+    return generateRecommendations(bounties, profile);
+  }, [bounties, profile]);
+
+  function clearFilters() {
     setSearchQuery("");
     setStatusFilter("all");
     setMinReward("");
     setMaxReward("");
+    setRepoFilter("");
+  }
+
+  async function handleExportReleasedPayouts() {
+    setExporting(true);
+    try {
+      await exportReleasedPayoutsCsv();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to export payouts.");
+    } finally {
+      setExporting(false);
+    }
+  }
 
 
 
@@ -338,10 +381,26 @@ n
     return match ? decodeURIComponent(match[1] ?? "") : null;
   }, [pathname]);
 
+  const repoRoute = useMemo(() => {
+    const match = pathname.match(/^\/repo\/([^/]+)\/([^/]+)$/);
+    return match ? { owner: decodeURIComponent(match[1]), name: decodeURIComponent(match[2]) } : null;
+  }, [pathname]);
+
   const detailBounty = useMemo(() => {
     if (!detailId) return null;
     return bounties.find((bounty) => bounty.id === detailId) ?? null;
   }, [bounties, detailId]);
+
+  const filteredBounties = useMemo(() => {
+    const effectiveRepoFilter = repoRoute ? `${repoRoute.owner}/${repoRoute.name}` : repoFilter;
+    return filterBounties(bounties, {
+      searchQuery,
+      statusFilter,
+      minReward,
+      maxReward,
+      repoFilter: effectiveRepoFilter,
+    });
+  }, [bounties, searchQuery, statusFilter, minReward, maxReward, repoFilter, repoRoute]);
 
   if (detailId) {
     const bounty = detailBounty;
@@ -485,6 +544,41 @@ n
           </div>
         </section>
       </header>
+
+      {repoRoute && (
+        <section className="hero-panel">
+          <div className="hero-panel__row">
+            <GitBranch size={18} />
+            <span>
+              <strong>{repoRoute.owner}/{repoRoute.name}</strong> repository
+            </span>
+          </div>
+          <div className="hero-panel__row">
+            <ExternalLink size={18} />
+            <span>
+              <a 
+                href={`https://github.com/${repoRoute.owner}/${repoRoute.name}`}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-link"
+              >
+                View on GitHub
+              </a>
+            </span>
+          </div>
+          <div className="hero-panel__row">
+            <ArrowUpRight size={18} />
+            <span>
+              <button 
+                className="ghost-button"
+                onClick={() => navigate("/")}
+              >
+                View all repositories
+              </button>
+            </span>
+          </div>
+        </section>
+      )}
 
       <section className="metrics">
         <article className="metric-card">
@@ -701,6 +795,24 @@ n
               </label>
 
               <label className="filter-field">
+                <span>Repository</span>
+                <div className="input-with-icon">
+                  <GitBranch size={16} />
+                  <select
+                    value={repoFilter}
+                    onChange={(event) => setRepoFilter(event.target.value)}
+                  >
+                    <option value="">All repositories</option>
+                    {uniqueRepos.map((repo) => (
+                      <option key={repo} value={repo}>
+                        {repo}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </label>
+
+              <label className="filter-field">
                 <span>Min reward</span>
                 <input
                   type="number"
@@ -757,9 +869,43 @@ n
                 <SkeletonBountyCard key={i} />
               ))}
             </div>
-          ) : filteredBounties.length > 0 ? (
+          ) : Object.keys(groupedBounties).length > 0 ? (
             <div className="board-list">
-              {filteredBounties.map((bounty) => (
+              {Object.entries(groupedBounties).map(([repo, repoBounties]) => (
+                <div key={repo} className="repo-group">
+                  <div className="repo-group__header">
+                    <h3 
+                      className="repo-group__title"
+                      onClick={() => navigate(`/repo/${repo.split('/')[0]}/${repo.split('/')[1]}`)}
+                      role="link"
+                      tabIndex={0}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          navigate(`/repo/${repo.split('/')[0]}/${repo.split('/')[1]}`);
+                        }
+                      }}
+                    >
+                      {repo}
+                    </h3>
+                    <span className="repo-count">{repoBounties.length} bounties</span>
+                  </div>
+                  <div className="repo-group__metrics">
+                    <div className="repo-metric">
+                      <span className="repo-metric__label">Open</span>
+                      <span className="repo-metric__value">{repoBounties.filter(b => b.status === 'open').length}</span>
+                    </div>
+                    <div className="repo-metric">
+                      <span className="repo-metric__label">Funded</span>
+                      <span className="repo-metric__value">{repoBounties.reduce((sum, b) => sum + b.amount, 0)} XLM</span>
+                    </div>
+                    <div className="repo-metric">
+                      <span className="repo-metric__label">Paid</span>
+                      <span className="repo-metric__value">{repoBounties.filter(b => b.status === 'released').reduce((sum, b) => sum + b.amount, 0)} XLM</span>
+                    </div>
+                  </div>
+                  <div className="repo-group__bounties">
+                    {repoBounties.map((bounty) => (
                 <article
                   className="bounty-card"
                   key={bounty.id}
@@ -854,8 +1000,9 @@ n
                   </div>
                 </article>
               ))}
+              </div>
             </div>
-          ) : (
+          ))}
             <div className="empty-state">
               No bounties match the current search, status, and reward range filters.
             </div>

@@ -51,6 +51,7 @@ export interface FilterState {
   statusFilter: "all" | BountyStatus;
   minReward: string;
   maxReward: string;
+  repoFilter: string;
 }
 
 export function readInitialFilters(): FilterState {
@@ -60,6 +61,7 @@ export function readInitialFilters(): FilterState {
     statusFilter: (params.get("status") as "all" | BountyStatus) ?? "all",
     minReward: params.get("minReward") ?? "",
     maxReward: params.get("maxReward") ?? "",
+    repoFilter: params.get("repo") ?? "",
   };
 }
 

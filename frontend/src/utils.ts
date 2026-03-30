@@ -1,10 +1,42 @@
 import { Bounty, BountyStatus } from "./types";
 import { FilterState } from "./constants";
 
+export function getUniqueRepos(bounties: Bounty[]): string[] {
+  const repos = new Set(bounties.map((bounty) => bounty.repo));
+  return Array.from(repos).sort();
+}
+
+export function getRepoMetrics(bounties: Bounty[], repo: string) {
+  const repoBounties = bounties.filter((bounty) => bounty.repo === repo);
+  const openBounties = repoBounties.filter((bounty) => bounty.status === "open");
+  const reservedBounties = repoBounties.filter((bounty) => bounty.status === "reserved");
+  const submittedBounties = repoBounties.filter((bounty) => bounty.status === "submitted");
+  const releasedBounties = repoBounties.filter((bounty) => bounty.status === "released");
+  const refundedBounties = repoBounties.filter((bounty) => bounty.status === "refunded");
+  const expiredBounties = repoBounties.filter((bounty) => bounty.status === "expired");
+
+  return {
+    totalBounties: repoBounties.length,
+    openBounties: openBounties.length,
+    reservedBounties: reservedBounties.length,
+    submittedBounties: submittedBounties.length,
+    releasedBounties: releasedBounties.length,
+    refundedBounties: refundedBounties.length,
+    expiredBounties: expiredBounties.length,
+    totalFunded: repoBounties.reduce((sum, bounty) => sum + bounty.amount, 0),
+    totalPaidOut: releasedBounties.reduce((sum, bounty) => sum + bounty.amount, 0),
+  };
+}
+
 export function filterBounties(bounties: Bounty[], filters: FilterState): Bounty[] {
   return bounties.filter((bounty) => {
     // Status filter
     if (filters.statusFilter !== "all" && bounty.status !== filters.statusFilter) {
+      return false;
+    }
+
+    // Repo filter
+    if (filters.repoFilter.trim() !== "" && bounty.repo !== filters.repoFilter) {
       return false;
     }
 
