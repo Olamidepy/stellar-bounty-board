@@ -110,6 +110,8 @@ export const reserveBountySchema = z
   })
   .openapi("ReserveBountyRequest");
 
+export const GITHUB_PR_URL_REGEX = /^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/pull\/\d+$/;
+
 export const submitBountySchema = z
   .object({
     contributor: stellarAccountSchema.openapi({
@@ -118,10 +120,10 @@ export const submitBountySchema = z
     submissionUrl: z
       .string()
       .trim()
-      .url("Submission URL must be a valid URL.")
+      .regex(GITHUB_PR_URL_REGEX, "Submission URL must be a valid GitHub PR link: https://github.com/<owner>/<repo>/pull/<number>.")
       .openapi({
         example: "https://github.com/owner/repo/pull/99",
-        description: "Link to the pull request or deliverable.",
+        description: "Link to the GitHub pull request.",
       }),
     notes: z
       .string()
