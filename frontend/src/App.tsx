@@ -9,12 +9,14 @@ import {
   FolderGit2,
   GitBranch,
   HandCoins,
+  Moon,
   Plus,
   Rocket,
   Search,
   ShieldCheck,
   SlidersHorizontal,
   Star,
+  Sun,
   Trash2,
   Upload,
   UserRound,
@@ -24,6 +26,7 @@ import {
 import {
   createBounty,
   exportReleasedPayoutsCsv,
+  getBounty,
   listBounties,
   listOpenIssues,
   refundBounty,
@@ -35,7 +38,7 @@ import SubmissionChecklistModal, { type SubmissionFormData } from "./SubmissionC
 import { BountyRecommendation, ContributorProfile, createDefaultProfile, generateRecommendations, updateProfileFromBounties } from "./recommendations";
 import RecommendedBounties from "./RecommendedBounties";
 import { statusCopy, actionCopy, readInitialFilters, FilterState, statusOptions, statusGlossary, sortOptions } from "./constants";
-import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getRepoMetrics, sortBounties, debounce, SortOption, SortState } from "./utils";
+import { filterBounties, getRewardBounds, getActiveRewardLabel, getContributorMetrics, getUniqueRepos, getRepoMetrics, sortBounties, debounce, SortOption, SortState, xlmToUsd } from "./utils";
 import { Bounty, CreateBountyPayload, OpenIssue, BountyStatus } from "./types";
 
 import GitHubIssuePreviewCard from "./GitHubIssuePreviewCard";
@@ -45,6 +48,32 @@ import SkeletonBountyCard from "./SkeletonBountyCard";
 
 const STELLAR_PUBLIC_KEY_HINT = "Expected Stellar public key (starts with G and is 56 characters).";
 const STELLAR_PUBLIC_KEY_REGEX = /^G[A-Z2-7]{55}$/;
+
+const DARK_MODE_KEY = "stellar-bounty-board:theme";
+
+function useDarkMode() {
+  const [dark, setDark] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem(DARK_MODE_KEY);
+      if (stored !== null) return stored === "dark";
+    } catch {
+      // ignore
+    }
+    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    root.setAttribute("data-theme", dark ? "dark" : "light");
+    try {
+      localStorage.setItem(DARK_MODE_KEY, dark ? "dark" : "light");
+    } catch {
+      // ignore
+    }
+  }, [dark]);
+
+  return { dark, toggle: () => setDark((d) => !d) };
+}
 
 const initialForm: CreateBountyPayload = {
   repo: "ritik4ever/stellar-stream",
@@ -102,7 +131,41 @@ function formatTimestamp(value?: number): string {
   return new Date(value * 1000).toLocaleString();
 }
 
+function BountyAmount({ bounty }: { bounty: Bounty }) {
+  const [usdAmount, setUsdAmount] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    if (bounty.tokenSymbol.toUpperCase() !== "XLM") {
+      setUsdAmount(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    setUsdAmount(null);
+    void xlmToUsd(bounty.amount).then((value) => {
+      if (active) {
+        setUsdAmount(value);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [bounty.amount, bounty.tokenSymbol]);
+
+  return (
+    <div className="amount-chip">
+      <strong>{bounty.amount} {bounty.tokenSymbol}</strong>
+      {usdAmount && <span>{usdAmount}</span>}
+    </div>
+  );
+}
+
 function App() {
+  const { dark, toggle: toggleDark } = useDarkMode();
   const initialFilters = useMemo(() => readInitialFilters(), []);
   const [form, setForm] = useState<CreateBountyPayload>(initialForm);
   const [bounties, setBounties] = useState<Bounty[]>([]);
@@ -139,36 +202,45 @@ function App() {
 
 
 
-  async function refresh(): Promise<void> {
-    const [bountyData, issueData] = await Promise.all([listBounties(), listOpenIssues()]);
+  async function refresh(signal?: AbortSignal): Promise<void> {
+    const [bountyData, issueData] = await Promise.all([
+      listBounties(signal),
+      listOpenIssues(signal),
+    ]);
     setBounties(bountyData);
     setIssues(issueData);
   }
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
+    const { signal } = controller;
 
     async function bootstrap() {
       try {
-        await refresh();
+        await refresh(signal);
       } catch (err) {
-        if (active) {
-          setError(err instanceof Error ? err.message : "Failed to load project data.");
-        }
+        if (signal.aborted) return; // component unmounted — ignore
+        setError(err instanceof Error ? err.message : "Failed to load project data.");
       } finally {
-        if (active) {
+        if (!signal.aborted) {
           setLoading(false);
         }
       }
     }
 
     void bootstrap();
+
     const timer = window.setInterval(() => {
-      void refresh().catch(() => undefined);
+      const pollController = new AbortController();
+      void refresh(pollController.signal).catch((err) => {
+        if (!(err instanceof DOMException && err.name === "AbortError")) {
+          // Silent poll failure — do not surface to user
+        }
+      });
     }, 7000);
 
     return () => {
-      active = false;
+      controller.abort();
       window.clearInterval(timer);
     };
   }, []);
@@ -265,6 +337,8 @@ function App() {
   }, [bounties, profileContributor]);
 
   const [profile, setProfile] = useState(() => createDefaultProfile());
+  const [detailBounty, setDetailBounty] = useState<Bounty | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
   const recommendations = useMemo(() => {
     return generateRecommendations(bounties, profile);
   }, [bounties, profile]);
@@ -364,10 +438,31 @@ function App() {
     return match ? { owner: decodeURIComponent(match[1]), name: decodeURIComponent(match[2]) } : null;
   }, [pathname]);
 
-  const detailBounty = useMemo(() => {
-    if (!detailId) return null;
-    return bounties.find((bounty) => bounty.id === detailId) ?? null;
-  }, [bounties, detailId]);
+  // Fetch single bounty via dedicated API endpoint instead of filtering the full list
+  useEffect(() => {
+    if (!detailId) {
+      setDetailBounty(null);
+      return;
+    }
+    let active = true;
+    setDetailLoading(true);
+    getBounty(detailId)
+      .then((bounty) => {
+        if (active) {
+          setDetailBounty(bounty);
+          setDetailLoading(false);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setDetailBounty(null);
+          setDetailLoading(false);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [detailId]);
 
   const filteredBounties = useMemo(() => {
     const effectiveRepoFilter = repoRoute ? `${repoRoute.owner}/${repoRoute.name}` : repoFilter;
@@ -407,7 +502,7 @@ function App() {
     return (
       <BountyDetailPage
         bounty={bounty}
-        loading={loading}
+        loading={detailLoading}
         onBack={() => navigate("/")}
         owner={owner}
         avatarUrl={avatarUrl}
@@ -510,6 +605,15 @@ function App() {
       <div className="glow glow-right" />
 
       <header className="hero">
+        <button
+          type="button"
+          className="dark-mode-toggle"
+          onClick={toggleDark}
+          aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+          title={dark ? "Switch to light mode" : "Switch to dark mode"}
+        >
+          {dark ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
         <div className="hero-copy">
           <span className="eyebrow">Stellar + Open Source</span>
           <h1>Fund GitHub issues with on-chain style escrow.</h1>
@@ -962,9 +1066,7 @@ placeholder="help wanted, backend"
                       </span>
                       <h3>{bounty.title}</h3>
                     </div>
-                    <div className="amount-chip">
-                      {bounty.amount} {bounty.tokenSymbol}
-                    </div>
+                    <BountyAmount bounty={bounty} />
                   </div>
 
                   <p className="bounty-summary">{bounty.summary}</p>
@@ -1197,9 +1299,7 @@ placeholder="help wanted, backend"
                       <span className={`status-pill status-pill--${bounty.status}`}>{bounty.status}</span>
                       <h3>{bounty.title}</h3>
                     </div>
-                    <div className="amount-chip">
-                      {bounty.amount} {bounty.tokenSymbol}
-                    </div>
+                    <BountyAmount bounty={bounty} />
                   </div>
 
                   <p className="bounty-summary">{bounty.summary}</p>
