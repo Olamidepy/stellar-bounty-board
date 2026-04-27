@@ -1,8 +1,4 @@
 
-
-
-import type { Bounty, BountyEvent, BountyStatus } from "./types";
-
 type BountyAction = "reserve" | "submit" | "release" | "refund";
 
 type Props = {
@@ -12,7 +8,10 @@ type Props = {
   owner: string;
   avatarUrl: string;
   statusCopy: Record<BountyStatus, { label: string; description: string }>;
-  actionCopy: Record<BountyStatus, Array<{ action: BountyAction; label: string; title: string }>>;
+  actionCopy: Record<
+    BountyStatus,
+    Array<{ action: BountyAction; label: string; title: string }>
+  >;
   renderActionButton: (
     bounty: Bounty,
     action: { action: BountyAction; label: string; title: string },
@@ -109,35 +108,6 @@ export default function BountyDetailPage({
   renderActionButton,
   formatTimestamp,
 }: Props) {
-  const [copiedKey, setCopiedKey] = useState<string | null>(null);
-
-  async function copyMetadata(value: string, key: string) {
-    await navigator.clipboard.writeText(value);
-    setCopiedKey(key);
-    window.setTimeout(() => {
-      setCopiedKey((current) => (current === key ? null : current));
-    }, 1800);
-  }
-
-  function renderCopyableValue(label: string, value: string, key: string) {
-    const copied = copiedKey === key;
-
-    return (
-      <div className="copyable-meta-value">
-        <strong>{value}</strong>
-        <button
-          type="button"
-          className="copy-meta-button"
-          aria-label={`Copy ${label}`}
-          title={`Copy ${label}`}
-          onClick={() => void copyMetadata(value, key)}
-        >
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-          <span>{copied ? "Copied" : "Copy"}</span>
-        </button>
-      </div>
-    );
-  }
 
   return (
     <div className="page-shell">
@@ -150,7 +120,12 @@ export default function BountyDetailPage({
             <span className="panel-kicker">Bounty</span>
             <h2>{bounty ? bounty.title : "Bounty"}</h2>
           </div>
-          <button type="button" className="secondary-button" onClick={onBack} disabled={loading}>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={onBack}
+            disabled={loading}
+          >
             Back
           </button>
         </div>
@@ -162,7 +137,14 @@ export default function BountyDetailPage({
         ) : (
           <div className="bounty-detail__content">
             <div className="bounty-detail__hero">
-              {avatarUrl && <img className="repo-avatar" src={avatarUrl} alt={owner} loading="lazy" />}
+              {avatarUrl && (
+                <img
+                  className="repo-avatar"
+                  src={avatarUrl}
+                  alt={owner}
+                  loading="lazy"
+                />
+              )}
               <div>
                 <span
                   className={`status-pill status-pill--${bounty.status}`}
@@ -274,7 +256,12 @@ export default function BountyDetailPage({
             )}
 
             {bounty.submissionUrl && (
-              <a className="submission-link" href={bounty.submissionUrl} target="_blank" rel="noreferrer">
+              <a
+                className="submission-link"
+                href={bounty.submissionUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
                 Review submission <ArrowUpRight size={16} />
               </a>
             )}
@@ -286,11 +273,14 @@ export default function BountyDetailPage({
             )}
 
             <p className="status-helper">
-              <strong>{statusCopy[bounty.status].label}:</strong> {statusCopy[bounty.status].description}
+              <strong>{statusCopy[bounty.status].label}:</strong>{" "}
+              {statusCopy[bounty.status].description}
             </p>
 
             <div className="action-row action-row--detail">
-              {(actionCopy[bounty.status] ?? []).map((action) => renderActionButton(bounty, action))}
+              {(actionCopy[bounty.status] ?? []).map((action) =>
+                renderActionButton(bounty, action),
+              )}
             </div>
 
             {bounty.events && bounty.events.length > 0 && (
